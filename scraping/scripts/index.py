@@ -1,7 +1,35 @@
+from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
+from datetime import datetime
+
+app = Flask(__name__)
+
+def scrape_urls(item_id, output_html, rankings_csv):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    }
+
+    target_url = f'https://kakaku.com/item/{item_id}/'
+
+    # HTMLの取得
+    soup = fetch_html(target_url, headers)
+    if soup is None:
+        return None, None
+
+    # HTMLの保存
+    save_html(soup, output_html)
+
+    # ランキング情報の抽出
+    rankings = extract_rankings(soup)
+    if rankings:
+        save_to_csv(rankings, rankings_csv)
+    else:
+        print("ランキング情報が存在しませんでした。")
+
+    return rankings
 
 def fetch_html(target_url, headers):
     """
@@ -25,26 +53,6 @@ def fetch_html(target_url, headers):
         print(f"Failed to retrieve data from {target_url}: {e}")
         return None
 
-def save_to_csv(data, filepath):
-    """
-    データをCSVファイルに保存します。
-
-    Args:
-        data (list or dict): 保存するデータ。
-        filepath (str): 保存先のCSVファイルのパス。
-    """
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-    if isinstance(data, dict):
-        df = pd.DataFrame([data])
-    elif isinstance(data, list):
-        df = pd.DataFrame(data)
-    else:
-        raise ValueError("保存するデータはリストまたは辞書形式である必要があります。")
-
-    df.to_csv(filepath, index=False, encoding='utf-8-sig')
-    print(f"データが '{filepath}' に保存されました。")
-
 def save_html(soup, filepath):
     """
     HTMLコンテンツをファイルに保存します。
@@ -58,19 +66,13 @@ def save_html(soup, filepath):
         file.write(str(soup))
     print(f"HTMLが '{filepath}' に保存されました。" )
 
-def get_header_text(soup):
-    header = soup.find('h1')
-    header_text = header.get_text(strip=True) if header else 'ヘッダー情報なし'
-    return header_text
-
 def extract_rankings(soup, top_n=20):
     """
     HTMLコンテンツからトップNのランキング情報を抽出します。
 
     Args:
         soup (BeautifulSoup): パースされたHTMLコンテンツ。
-        base_domain (str): 抽出対象のベースドメイン。
-        top_n (int, optional): 抽出するランキングの数。デフォルトは10。
+        top_n (int, optional): 抽出するランキングの数。デフォルトは20。
 
     Returns:
         list: ランキング情報のリスト。
@@ -92,7 +94,7 @@ def extract_rankings(soup, top_n=20):
 
         # 順位の抽出
         rank_number_tag = parent_tr.find('span', class_='p-PTRank')
-        rank_number_text = rank_number_tag.get_text(strip=True)
+        rank_number_text = rank_number_tag.get_text(strip=True) if rank_number_tag else '順位なし'
 
         # 価格情報の抽出
         price_tag = parent_tr.find('p', class_='p-PTPrice_price')
@@ -130,38 +132,31 @@ def extract_rankings(soup, top_n=20):
 
     return rankings
 
-def scrape_urls(target_url, output_html, rankings_csv):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-    }
+def get_header_text(soup):
+    header = soup.find('h1')
+    header_text = header.get_text(strip=True) if header else 'ヘッダー情報なし'
+    return header_text
 
-    # HTMLの取得
-    soup = fetch_html(target_url, headers)
-    if soup is None:
-        return
+def save_to_csv(data, filepath):
+    """
+    データをCSVファイルに保存します。ファイル名に現在の日時を追加します。
 
-    # HTMLの保存
-    save_html(soup, output_html)
+    Args:
+        data (list or dict): 保存するデータ。
+        filepath (str): 保存先のCSVファイルのパス。
+    """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-    # ランキング情報の抽出
-    rankings = extract_rankings(soup)
-    if rankings:
-        save_to_csv(rankings, rankings_csv)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base, ext = os.path.splitext(filepath)
+    filepath_with_timestamp = f"{base}_{timestamp}{ext}"
+
+    if isinstance(data, dict):
+        df = pd.DataFrame([data])
+    elif isinstance(data, list):
+        df = pd.DataFrame(data)
     else:
-        print("ランキング情報が存在しませんでした。")
+        raise ValueError("保存するデータはリストまたは辞書形式である必要があります。")
 
-def main():
-    target_url = 'https://kakaku.com/item/J0000037910/'  # 抽出対象のURL
-    output_html = 'data/fetched.html'  # 出力HTMLファイルのパス
-    rankings_csv = 'data/top10_rankings.csv'  # トップ10ランキングの出力CSVファイルのパス
-
-    scrape_urls(target_url, output_html, rankings_csv)
-
-# def main():
-#     """
-#     Flaskアプリケーションを実行します。
-#     """
-#     app.run(host='0.0.0.0', port=5000, debug=True)
-
-if __name__ == "__main__":
-    main()
+    df.to_csv(filepath_with_timestamp, index=False, encoding='utf-8-sig')
+    print(f"データが '{filepath_with_timestamp}' に保存されました。")
